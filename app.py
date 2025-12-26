@@ -116,10 +116,10 @@ with st.sidebar:
                 with st.form("quick_add_form"):
                     if is_float:
                         val_def = 5.0; step_val = 1.0; fmt = "%.2f"
-                        amount = st.number_input("Value", value=val_def, step=step_val, format=fmt)
+                        amount = st.number_input("Value", value=val_def, step=step_val, format=fmt, min_value=0.0)
                     else:
                         val_def = 1; step_val = 1; fmt = "%d"
-                        amount = st.number_input("Value", value=int(val_def), step=int(step_val), format=fmt)
+                        amount = st.number_input("Value", value=int(val_def), step=int(step_val), format=fmt, min_value=0)
                     
                     if st.form_submit_button("SAVE", type="primary", use_container_width=True):
                         database.add_log(act, amount)
@@ -193,10 +193,11 @@ def render_simple_section(title, category, is_bad_habit=False):
                 with st.form(key=f"form_{key_pop}"):
                     if is_float:
                         step = 0.5; fmt = "%.2f"; val = float(s)
+                        new_value = st.number_input("State:", value=val, step=step, format=fmt, min_value=0.0)
                     else:
                         step = 1; fmt = "%d"; val = int(s)
+                        new_value = st.number_input("State:", value=val, step=step, format=fmt, min_value=0)
                     
-                    new_value = st.number_input("State:", value=val, step=step, format=fmt)
                     submitted = st.form_submit_button("Confirm", use_container_width=True)
                 
                 if submitted:
@@ -261,8 +262,8 @@ elif selected_page == "🏃 Running Log":
         st.success("Add New Run")
         with st.form("run_form"):
             d = st.date_input("Date", value=date.today())
-            km = st.number_input("Distance (km)", value=5.0, step=1.0)
-            t = st.number_input("Time (min)", value=30.0, step=1.0)
+            km = st.number_input("Distance (km)", value=5.0, step=1.0, min_value=0.0)
+            t = st.number_input("Time (min)", value=30.0, step=1.0, min_value=0.0)
             n = st.text_input("Note")
             if st.form_submit_button("SAVE RUN", width="stretch"):
                 database.add_run(km, t, n, d); st.rerun()
@@ -286,8 +287,8 @@ elif selected_page == "🏃 Running Log":
                     "id": st.column_config.NumberColumn(disabled=True),
                     "pace": st.column_config.NumberColumn("Pace", format="%.2f", disabled=True),
                     "date": st.column_config.DateColumn("Date", disabled=not edit_mode),
-                    "distance": st.column_config.NumberColumn("km", format="%.2f", step=0.1, disabled=not edit_mode),
-                    "time_min": st.column_config.NumberColumn("min", format="%d", step=1, disabled=not edit_mode),
+                    "distance": st.column_config.NumberColumn("km", format="%.2f", step=0.1, disabled=not edit_mode, min_value=0.0),
+                    "time_min": st.column_config.NumberColumn("min", format="%d", step=1, disabled=not edit_mode, min_value=0),
                     "note": st.column_config.TextColumn("Note", disabled=not edit_mode)
                 }
             )
@@ -350,38 +351,41 @@ elif selected_page == "📅 Planner":
     if cat_filter == "Bad Habits":
         cols_to_show.insert(2, "Is Bad Habit")
 
-    edited = st.data_editor(
-        df_display,
-        key="editor_planner",
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        column_order=cols_to_show,
-        column_config={
-            "Activity": st.column_config.TextColumn(
-                required=True, 
-                width="large",
-                help="Unique name (e.g. 6b+, Running)"
-            ),
-            "Category": st.column_config.SelectboxColumn(
-                width="medium",
-                options=all_cats_for_dropdown, 
-                required=True
-            ),
-            "Is Bad Habit": st.column_config.CheckboxColumn(
-                label="Bad?", 
-                width="small",
-                default=False
-            ),
-            "Weekly Goal": st.column_config.NumberColumn(
-                min_value=0, 
-                step=1,
-                width="small"
-            )
-        }
-    )
+    with st.form("planner_form"):
+        edited = st.data_editor(
+            df_display,
+            key="editor_planner",
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_order=cols_to_show,
+            column_config={
+                "Activity": st.column_config.TextColumn(
+                    required=True, 
+                    width="large",
+                    help="Unique name (e.g. 6b+, Running)"
+                ),
+                "Category": st.column_config.SelectboxColumn(
+                    width="medium",
+                    options=all_cats_for_dropdown, 
+                    required=True
+                ),
+                "Is Bad Habit": st.column_config.CheckboxColumn(
+                    label="Bad?", 
+                    width="small",
+                    default=False
+                ),
+                "Weekly Goal": st.column_config.NumberColumn(
+                    min_value=0, 
+                    step=1,
+                    width="small"
+                )
+            }
+        )
+        
+        submitted = st.form_submit_button("SAVE CHANGES", type="primary", use_container_width=True)
 
-    if st.button("SAVE CHANGES", type="primary", width="stretch"):
+    if submitted:
         if "editor_planner" in st.session_state:
             changes = st.session_state["editor_planner"]
             
