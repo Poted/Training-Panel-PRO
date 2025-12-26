@@ -27,42 +27,43 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
-
-def check_login():
-    user = st.session_state['login_user']
-    password = st.session_state['login_pass']
-
-    
-    try:
-        correct_pass = st.secrets["users"][user]
-        if password == correct_pass:
-            st.session_state['logged_in'] = True
-            # Przypisujemy odpowiednią bazę danych
-            st.session_state['db_url'] = st.secrets["db_urls"][user]
-            st.success("Zalogowano! Ładowanie...")
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error("Błędne hasło!")
-    except KeyError:
-        st.error(f"Nieznany użytkownik w konfiguracji: {user}")
+if 'current_user' not in st.session_state:
+    st.session_state['current_user'] = ""
+if 'db_url' not in st.session_state:
+    st.session_state['db_url'] = ""
 
 if not st.session_state['logged_in']:
     st.title("🔒 Panel Treningowy - Logowanie")
     
-    users_list = ["user1", "user2", "user3"]
+    users_list = ["user1", "user2", "user3"] 
     
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.selectbox("Wybierz profil:", users_list, key="login_user")
-        st.text_input("Hasło:", type="password", key="login_pass")
-        st.button("ZALOGUJ", on_click=check_login, type="primary", width="stretch")
+        selected_user = st.selectbox("Wybierz profil:", users_list)
+        input_password = st.text_input("Hasło:", type="password")
+        
+        if st.button("ZALOGUJ", type="primary", width="stretch"):
+            try:
+                correct_pass = st.secrets["users"][selected_user]
+                
+                if input_password == correct_pass:
+                    st.session_state['logged_in'] = True
+                    st.session_state['current_user'] = selected_user
+                    st.session_state['db_url'] = st.secrets["db_urls"][selected_user]
+                    
+                    st.success("Zalogowano! Przełączanie...")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("Błędne hasło!")
+            except KeyError:
+                st.error(f"Błąd konfiguracji: Użytkownik '{selected_user}' nie istnieje w secrets.toml")
+            except Exception as e:
+                st.error(f"Wystąpił nieoczekiwany błąd: {e}")
     
     st.stop()
-
 
 baza.inicjalizuj_baze()
 
@@ -86,7 +87,7 @@ ZLE_NAWYKI = df_conf[df_conf['czy_zly']==1]['nazwa'].tolist()
 METRYKI_SREDNIE = ["Bieganie (tempo)"]
 
 with st.sidebar:
-    st.title(f"Witaj, {st.session_state['login_user'].upper()}! 👋")
+    st.title(f"Witaj, {st.session_state['current_user'].upper()}! 👋")
     
     wybrana_strona = st.radio(
         "Przejdź do:", 
@@ -124,6 +125,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("Wyloguj", width="stretch"):
         st.session_state['logged_in'] = False
+        st.session_state['current_user'] = ""
         st.rerun()
 
 stany = baza.pobierz_stan_tygodnia_dict()
@@ -207,7 +209,6 @@ def render_sekcja_prosta(tytul, kategoria, czy_zly=False):
         okres = st.selectbox("Okres", ["Ten Tydzień", "Ten Miesiąc", "Ten Rok"], key=f"o_{kategoria}")
         render_wykres_altair(lista, okres, kategoria)
 
-
 def obsluga_zmian_tabeli():
     if "editor_biegi" not in st.session_state: return
     changes = st.session_state["editor_biegi"]
@@ -229,7 +230,6 @@ def obsluga_zmian_tabeli():
         if dist > 0 and czas > 0:
             baza.dodaj_bieg(dist, czas, notatka, data)
             st.toast("🏃 Dodano bieg!")
-
 
 if wybrana_strona == "🏠 Centrum Dowodzenia":
     st.title("Centrum Dowodzenia")
