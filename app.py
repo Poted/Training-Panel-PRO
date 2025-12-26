@@ -348,10 +348,25 @@ elif selected_page == "📅 Planner":
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Activity": st.column_config.TextColumn(required=True, help="Unique name"),
-            "Category": st.column_config.SelectboxColumn(options=all_cats_for_dropdown, required=True),
-            "Is Bad Habit": st.column_config.CheckboxColumn(label="Bad?", width="small"),
-            "Weekly Goal": st.column_config.NumberColumn(min_value=0, step=1)
+            "Activity": st.column_config.TextColumn(
+                required=True, 
+                width="large",
+                help="Unique name (e.g. 6b+, Running)"
+            ),
+            "Category": st.column_config.SelectboxColumn(
+                width="medium",
+                options=all_cats_for_dropdown, 
+                required=True
+            ),
+            "Is Bad Habit": st.column_config.CheckboxColumn(
+                label="Bad?", 
+                width="small"
+            ),
+            "Weekly Goal": st.column_config.NumberColumn(
+                min_value=0, 
+                step=1,
+                width="small"
+            )
         }
     )
 
