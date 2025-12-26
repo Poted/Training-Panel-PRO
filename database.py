@@ -164,46 +164,56 @@ def update_planner_batch(changes, df_snapshot):
     
     with conn.cursor() as cur:
         for idx in changes["deleted_rows"]:
-            act_name = df_snapshot.iloc[idx]['Activity']
-            cur.execute("DELETE FROM config_aktywnosci WHERE nazwa = %s", (act_name,))
-            cur.execute("DELETE FROM cele WHERE aktywnosc = %s", (act_name,))
+            if idx < len(df_snapshot):
+                act_name = df_snapshot.iloc[idx]['Activity']
+                cur.execute("DELETE FROM config_aktywnosci WHERE nazwa = %s", (act_name,))
+                cur.execute("DELETE FROM cele WHERE aktywnosc = %s", (act_name,))
             
         for idx, row_changes in changes["edited_rows"].items():
-            original_row = df_snapshot.iloc[idx]
-            act_name = original_row['Activity']
-            
-            if "Category" in row_changes or "Is Bad Habit" in row_changes:
-                new_cat = row_changes.get("Category", original_row['Category'])
-                new_bad = row_changes.get("Is Bad Habit", original_row['Is Bad Habit'])
-                cur.execute("UPDATE config_aktywnosci SET kategoria=%s, czy_zly=%s WHERE nazwa=%s", 
-                            (new_cat, 1 if new_bad else 0, act_name))
-            
-            if "Weekly Goal" in row_changes:
-                new_goal = row_changes["Weekly Goal"]
-                query_goal = """
-                    INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
-                    ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
-                """
-                cur.execute(query_goal, (key, act_name, new_goal))
+            if idx < len(df_snapshot):
+                original_row = df_snapshot.iloc[idx]
+                act_name = original_row['Activity']
+                
+                if "Category" in row_changes or "Is Bad Habit" in row_changes:
+                    new_cat = row_changes.get("Category", original_row['Category'])
+                    bad_val = row_changes.get("Is Bad Habit", original_row['Is Bad Habit'])
+                    new_bad = 1 if (bad_val is True or bad_val == 1) else 0
+                    cur.execute("UPDATE config_aktywnosci SET kategoria=%s, czy_zly=%s WHERE nazwa=%s", 
+                                (new_cat, new_bad, act_name))
+                
+                if "Weekly Goal" in row_changes:
+                    new_goal = row_changes["Weekly Goal"]
+                    query_goal = """
+                        INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
+                        ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
+                    """
+                    cur.execute(query_goal, (key, act_name, new_goal))
 
         for new_row in changes["added_rows"]:
-            name = new_row.get("Activity")
-            cat = new_row.get("Category")
-            bad = new_row.get("Is Bad Habit", False)
+            raw_name = new_row.get("Activity", "")
+            name = raw_name.strip() if raw_name else None
+            
+            raw_cat = new_row.get("Category", "")
+            cat = raw_cat.strip() if raw_cat else None
+            
+            bad_val = new_row.get("Is Bad Habit", False)
+            bad = 1 if (bad_val is True or bad_val == 1) else 0
+            
             goal = new_row.get("Weekly Goal", 0)
             
             if name and cat:
-                try:
-                    cur.execute("INSERT INTO config_aktywnosci (nazwa, kategoria, czy_zly) VALUES (%s, %s, %s)", 
-                                (name, cat, 1 if bad else 0))
-                    if goal > 0:
-                        query_goal = """
-                            INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
-                            ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
-                        """
-                        cur.execute(query_goal, (key, name, goal))
-                except Exception:
-                    pass
+                query_ins = """
+                    INSERT INTO config_aktywnosci (nazwa, kategoria, czy_zly) VALUES (%s, %s, %s)
+                    ON CONFLICT (nazwa) DO UPDATE SET kategoria = EXCLUDED.kategoria, czy_zly = EXCLUDED.czy_zly
+                """
+                cur.execute(query_ins, (name, cat, bad))
+                
+                if goal > 0:
+                    query_goal = """
+                        INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
+                        ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
+                    """
+                    cur.execute(query_goal, (key, name, goal))
 
         conn.commit()
     st.cache_data.clear()

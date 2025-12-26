@@ -293,12 +293,11 @@ elif selected_page == "🏃 Running Log":
 elif selected_page == "📅 Planner":
     st.title("📅 Planner")
     
-    df_plan = database.get_full_planner()
-    st.session_state["df_plan_snapshot"] = df_plan
+    df_raw = database.get_full_planner()
 
     if "temp_categories" not in st.session_state: st.session_state.temp_categories = []
     
-    db_cats = df_plan['Category'].unique().tolist()
+    db_cats = df_raw['Category'].unique().tolist()
     all_cats_for_dropdown = sorted(list(set(db_cats + st.session_state.temp_categories)))
 
     col_tools, col_filter = st.columns([1, 2])
@@ -335,9 +334,12 @@ elif selected_page == "📅 Planner":
         cat_filter = st.selectbox("Filter:", ["All Categories"] + all_cats_for_dropdown)
 
     if cat_filter != "All Categories":
-        df_display = df_plan[df_plan['Category'] == cat_filter]
+        df_display = df_raw[df_raw['Category'] == cat_filter].copy()
     else:
-        df_display = df_plan
+        df_display = df_raw.copy()
+
+    df_display = df_display.reset_index(drop=True)
+    st.session_state["df_plan_snapshot"] = df_display
 
     st.info("💡 You can add new rows below. Use 'Manage Categories' to add/edit categories.")
     
@@ -346,7 +348,7 @@ elif selected_page == "📅 Planner":
         key="editor_planner",
         num_rows="dynamic",
         use_container_width=True,
-        hide_index=True,
+        hide_index=True, 
         column_config={
             "Activity": st.column_config.TextColumn(
                 required=True, 
@@ -360,7 +362,8 @@ elif selected_page == "📅 Planner":
             ),
             "Is Bad Habit": st.column_config.CheckboxColumn(
                 label="Bad?", 
-                width="small"
+                width="small",
+                default=False
             ),
             "Weekly Goal": st.column_config.NumberColumn(
                 min_value=0, 
@@ -373,6 +376,13 @@ elif selected_page == "📅 Planner":
     if st.button("SAVE CHANGES", type="primary", width="stretch"):
         if "editor_planner" in st.session_state:
             changes = st.session_state["editor_planner"]
+            
+            if changes["added_rows"]:
+                for row in changes["added_rows"]:
+                    current_cat = row.get("Category")
+                    if (not current_cat or str(current_cat).strip() == "") and cat_filter != "All Categories":
+                        row["Category"] = cat_filter
+
             if changes["edited_rows"] or changes["deleted_rows"] or changes["added_rows"]:
                 database.update_planner_batch(changes, st.session_state["df_plan_snapshot"])
                 st.success("Changes saved!")
