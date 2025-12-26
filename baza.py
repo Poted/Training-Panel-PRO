@@ -73,7 +73,7 @@ def dodaj_bieg(dystans, czas_min, notatka="", data_biegu=None):
     conn = polacz()
     with conn.cursor() as cur:
         cur.execute("INSERT INTO biegi (data, dystans, czas_min, tempo_min_km, notatka) VALUES (%s, %s, %s, %s, %s)", 
-                     (data_biegu, dystans, czas_min, tempo, notatka))
+                      (data_biegu, dystans, czas_min, tempo, notatka))
         cur.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (%s, %s, %s)", (data_biegu, "Running (km)", dystans))
         cur.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (%s, %s, %s)", (data_biegu, "Running (pace)", tempo))
         conn.commit()
@@ -180,6 +180,25 @@ def aktualizuj_planer_batch(changes, df_snapshot):
                     ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
                 """
                 cur.execute(query_cel, (klucz, act_name, new_goal))
+
+        for new_row in changes["added_rows"]:
+            nazwa = new_row.get("Activity")
+            kat = new_row.get("Category")
+            bad = new_row.get("Is Bad Habit", False)
+            goal = new_row.get("Weekly Goal", 0)
+            
+            if nazwa and kat:
+                try:
+                    cur.execute("INSERT INTO config_aktywnosci (nazwa, kategoria, czy_zly) VALUES (%s, %s, %s)", 
+                                (nazwa, kat, 1 if bad else 0))
+                    if goal > 0:
+                        query_cel = """
+                            INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
+                            ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
+                        """
+                        cur.execute(query_cel, (klucz, nazwa, goal))
+                except Exception:
+                    pass
 
         conn.commit()
     st.cache_data.clear()

@@ -292,33 +292,32 @@ elif wybrana_strona == "🏃 Running Log":
 elif wybrana_strona == "📅 Goal Planner & Manager":
     st.title("📅 Goal Planner & Manager")
     
-    with st.expander("➕ Add New Activity", expanded=False):
-        c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
-        new_name = c1.text_input("Name (e.g. Yoga)")
-        new_cat = c2.text_input("Category (e.g. Recovery)")
-        new_bad = c3.checkbox("Bad Habit?")
-        if c4.button("ADD", type="primary", width="stretch"):
-            if new_name and new_cat:
-                if baza.dodaj_nowa_aktywnosc(new_name, new_cat, new_bad):
-                    st.success(f"Added: {new_name}")
-                    st.rerun()
-                else: st.error("Error or duplicate.")
-            else: st.warning("Name and Category required.")
-
-    st.markdown("---")
-
     df_plan = baza.pobierz_pelny_planer()
     st.session_state["df_plan_snapshot"] = df_plan
 
-    all_cats = ["All Categories"] + sorted(df_plan['Category'].unique().tolist())
-    cat_filter = st.selectbox("Filter:", all_cats)
+    if "temp_categories" not in st.session_state: st.session_state.temp_categories = []
+    
+    db_cats = df_plan['Category'].unique().tolist()
+    all_cats_for_dropdown = sorted(list(set(db_cats + st.session_state.temp_categories)))
+
+    col_tools, col_filter = st.columns([1, 2])
+    with col_tools:
+        with st.popover("➕ Define New Category", use_container_width=True):
+            new_cat_input = st.text_input("New Category Name")
+            if st.button("Add to List"):
+                if new_cat_input and new_cat_input not in all_cats_for_dropdown:
+                    st.session_state.temp_categories.append(new_cat_input)
+                    st.rerun()
+    with col_filter:
+        cat_filter = st.selectbox("Filter:", ["All Categories"] + all_cats_for_dropdown)
 
     if cat_filter != "All Categories":
         df_display = df_plan[df_plan['Category'] == cat_filter]
     else:
         df_display = df_plan
 
-    st.info("💡 Edit Categories, Bad Habit status, or Weekly Goals here. Use 'DEL' key to remove rows.")
+    st.info("💡 You can add new rows below. To use a new category, add it via the button above first.")
+    
     edited = st.data_editor(
         df_display,
         key="editor_planer",
@@ -326,9 +325,9 @@ elif wybrana_strona == "📅 Goal Planner & Manager":
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Activity": st.column_config.TextColumn(disabled=True, help="To rename, delete and add new."),
-            "Category": st.column_config.TextColumn(),
-            "Is Bad Habit": st.column_config.CheckboxColumn(),
+            "Activity": st.column_config.TextColumn(required=True, help="Unique name"),
+            "Category": st.column_config.SelectboxColumn(options=all_cats_for_dropdown, required=True),
+            "Is Bad Habit": st.column_config.CheckboxColumn(width="small"),
             "Weekly Goal": st.column_config.NumberColumn(min_value=0, step=1)
         }
     )
@@ -337,9 +336,6 @@ elif wybrana_strona == "📅 Goal Planner & Manager":
         if "editor_planer" in st.session_state:
             changes = st.session_state["editor_planer"]
             if changes["edited_rows"] or changes["deleted_rows"] or changes["added_rows"]:
-                if changes["added_rows"]:
-                    st.warning("Please use the 'Add New Activity' form above to add items.")
-                
                 baza.aktualizuj_planer_batch(changes, st.session_state["df_plan_snapshot"])
                 st.success("Changes saved!")
                 time.sleep(1)
