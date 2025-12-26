@@ -8,7 +8,7 @@ import time
 st.set_page_config(page_title="Training Panel PRO", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
-<link rel="manifest" href="app/static/manifest.json">
+<link rel="manifest" href="static/manifest.json">
 <style>
     .stProgress > div > div > div > div { background-color: #4CAF50; }
     div[data-testid="column"] { 
@@ -36,7 +36,7 @@ if 'db_url' not in st.session_state:
     st.session_state['db_url'] = ""
 
 if not st.session_state['logged_in']:
-    st.title("🔒 Training Panel PRO - Login")
+    st.title("🔒 PanelPRO - Login")
     
     users_list = ["user1", "user2", "user3"] 
     
