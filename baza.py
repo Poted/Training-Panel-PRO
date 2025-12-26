@@ -1,26 +1,39 @@
-import sqlite3
-from datetime import date, datetime, timedelta
+import os
 import pandas as pd
-
-DB_NAME = "treningi.db"
+from datetime import date, datetime, timedelta
+import psycopg2
+import streamlit as st
 
 def polacz():
-    return sqlite3.connect(DB_NAME)
+    if 'db_url' not in st.session_state:
+        return None
+    
+    try:
+        return psycopg2.connect(st.session_state['db_url'])
+    except Exception as e:
+        st.error(f"Błąd połączenia z bazą: {e}")
+        return None
 
-# --- INICJALIZACJA ---
 def inicjalizuj_baze():
     conn = polacz()
-    conn.execute('''CREATE TABLE IF NOT EXISTS logi 
-                    (id INTEGER PRIMARY KEY, data TEXT, aktywnosc TEXT, ilosc REAL)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS cele 
+    if not conn: return
+    cur = conn.cursor()
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS logi 
+                    (id SERIAL PRIMARY KEY, data TEXT, aktywnosc TEXT, ilosc REAL)''')
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS cele 
                     (klucz_tygodnia TEXT, aktywnosc TEXT, wartosc REAL, 
                     PRIMARY KEY (klucz_tygodnia, aktywnosc))''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS config_aktywnosci 
-                    (nazwa TEXT PRIMARY KEY, kategoria TEXT, czy_zly INTEGER)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS biegi 
-                    (id INTEGER PRIMARY KEY, data TEXT, dystans REAL, czas_min REAL, tempo_min_km REAL, notatka TEXT)''')
     
-    cur = conn.cursor()
+    cur.execute('''CREATE TABLE IF NOT EXISTS config_aktywnosci 
+                    (nazwa TEXT PRIMARY KEY, kategoria TEXT, czy_zly INTEGER)''')
+    
+    cur.execute('''CREATE TABLE IF NOT EXISTS biegi 
+                    (id SERIAL PRIMARY KEY, data TEXT, dystans REAL, czas_min REAL, tempo_min_km REAL, notatka TEXT)''')
+    
+    conn.commit()
+    
     cur.execute("SELECT count(*) FROM config_aktywnosci")
     if cur.fetchone()[0] == 0:
         dane = [("Pompki", "Treningi", 0), ("Podciągnięcia", "Treningi", 0), 
@@ -29,50 +42,63 @@ def inicjalizuj_baze():
                 ("Sauna (min)", "Regeneracja", 0), ("Suplementy", "Regeneracja", 0),
                 ("5", "Baldy", 0), ("6A", "Baldy", 0), ("6A+", "Baldy", 0), ("6B", "Baldy", 0), ("6C", "Baldy", 0), ("7A", "Baldy", 0),
                 ("5", "Liny", 0), ("6a", "Liny", 0), ("6a+", "Liny", 0), ("6b", "Liny", 0), ("6c", "Liny", 0), ("7a", "Liny", 0)]
-        cur.executemany("INSERT OR IGNORE INTO config_aktywnosci VALUES (?, ?, ?)", dane)
-    conn.commit()
+        
+        query = "INSERT INTO config_aktywnosci (nazwa, kategoria, czy_zly) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING"
+        cur.executemany(query, dane)
+        conn.commit()
+    
+    cur.close()
     conn.close()
 
-# --- UNDO (NOWOŚĆ) ---
 def cofnij_ostatni_log():
-    """Usuwa ostatnio dodany wpis z tabeli logi"""
     conn = polacz()
-    # Pobierz ostatni wpis żeby wiedzieć co usuwamy (do komunikatu)
-    ostatni = conn.execute("SELECT id, aktywnosc, ilosc FROM logi ORDER BY id DESC LIMIT 1").fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT id, aktywnosc, ilosc FROM logi ORDER BY id DESC LIMIT 1")
+    ostatni = cur.fetchone()
     
     msg = None
     if ostatni:
-        conn.execute("DELETE FROM logi WHERE id = ?", (ostatni[0],))
+        cur.execute("DELETE FROM logi WHERE id = %s", (ostatni[0],))
         conn.commit()
         msg = f"{ostatni[1]} ({ostatni[2]})"
     
+    cur.close()
     conn.close()
-    return msg # Zwraca nazwę usuniętej rzeczy lub None
+    return msg
 
-# --- RESZTA FUNKCJI (BEZ ZMIAN) ---
 def dodaj_bieg(dystans, czas_min, notatka="", data_biegu=None):
     if data_biegu is None: data_biegu = str(date.today())
     else: data_biegu = str(data_biegu)
     tempo = czas_min / dystans if dystans > 0 else 0
+    
     conn = polacz()
-    conn.execute("INSERT INTO biegi (data, dystans, czas_min, tempo_min_km, notatka) VALUES (?, ?, ?, ?, ?)", 
+    cur = conn.cursor()
+    cur.execute("INSERT INTO biegi (data, dystans, czas_min, tempo_min_km, notatka) VALUES (%s, %s, %s, %s, %s)", 
                  (data_biegu, dystans, czas_min, tempo, notatka))
-    conn.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (?, ?, ?)", (data_biegu, "Bieganie (km)", dystans))
-    conn.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (?, ?, ?)", (data_biegu, "Bieganie (tempo)", tempo))
+    cur.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (%s, %s, %s)", (data_biegu, "Bieganie (km)", dystans))
+    cur.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (%s, %s, %s)", (data_biegu, "Bieganie (tempo)", tempo))
     conn.commit()
     conn.close()
 
 def aktualizuj_bieg(id_biegu, kolumna, nowa_wartosc):
     conn = polacz()
-    conn.execute(f"UPDATE biegi SET {kolumna} = ? WHERE id = ?", (nowa_wartosc, id_biegu))
+    cur = conn.cursor()
+    dozwolone = ["dystans", "czas_min", "notatka", "data"]
+    if kolumna not in dozwolone: return
+
+    query = f"UPDATE biegi SET {kolumna} = %s WHERE id = %s"
+    cur.execute(query, (nowa_wartosc, id_biegu))
+    
     if kolumna in ['dystans', 'czas_min']:
-        conn.execute("UPDATE biegi SET tempo_min_km = czas_min / dystans WHERE id = ?", (id_biegu,))
+        cur.execute("UPDATE biegi SET tempo_min_km = czas_min / dystans WHERE id = %s", (id_biegu,))
+        
     conn.commit()
     conn.close()
 
 def usun_bieg(id_biegu):
     conn = polacz()
-    conn.execute("DELETE FROM biegi WHERE id = ?", (id_biegu,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM biegi WHERE id = %s", (id_biegu,))
     conn.commit()
     conn.close()
 
@@ -112,9 +138,11 @@ def oblicz_cel_historyczny(aktywnosc, okres):
     klucze = daj_liste_tygodni_w_okresie(okres)
     if not klucze: return 0
     conn = polacz()
-    placeholders = ','.join('?' for _ in klucze)
-    query = f"SELECT SUM(wartosc) FROM cele WHERE aktywnosc = ? AND klucz_tygodnia IN ({placeholders})"
-    wynik = conn.execute(query, [aktywnosc] + klucze).fetchone()[0]
+    cur = conn.cursor()
+    placeholders = ','.join('%s' for _ in klucze)
+    query = f"SELECT SUM(wartosc) FROM cele WHERE aktywnosc = %s AND klucz_tygodnia IN ({placeholders})"
+    cur.execute(query, [aktywnosc] + klucze)
+    wynik = cur.fetchone()[0]
     conn.close()
     return wynik if wynik else 0
 
@@ -126,8 +154,9 @@ def pobierz_konfiguracje():
 
 def dodaj_nowa_aktywnosc(nazwa, kategoria, czy_zly):
     conn = polacz()
+    cur = conn.cursor()
     try:
-        conn.execute("INSERT INTO config_aktywnosci VALUES (?, ?, ?)", (nazwa, kategoria, 1 if czy_zly else 0))
+        cur.execute("INSERT INTO config_aktywnosci VALUES (%s, %s, %s)", (nazwa, kategoria, 1 if czy_zly else 0))
         conn.commit()
         return True
     except: return False
@@ -135,41 +164,54 @@ def dodaj_nowa_aktywnosc(nazwa, kategoria, czy_zly):
 
 def usun_aktywnosc(nazwa):
     conn = polacz()
-    conn.execute("DELETE FROM config_aktywnosci WHERE nazwa = ?", (nazwa,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM config_aktywnosci WHERE nazwa = %s", (nazwa,))
     conn.commit()
     conn.close()
 
 def dodaj_log(aktywnosc, ilosc):
     conn = polacz()
-    conn.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (?, ?, ?)", (str(date.today()), aktywnosc, ilosc))
+    cur = conn.cursor()
+    cur.execute("INSERT INTO logi (data, aktywnosc, ilosc) VALUES (%s, %s, %s)", (str(date.today()), aktywnosc, ilosc))
     conn.commit()
     conn.close()
 
 def ustaw_cel(aktywnosc, wartosc):
     conn = polacz()
-    conn.execute("INSERT OR REPLACE INTO cele VALUES (?, ?, ?)", (daj_klucz_tygodnia(), aktywnosc, wartosc))
+    cur = conn.cursor()
+    # Postgres UPSERT
+    query = """
+        INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) 
+        VALUES (%s, %s, %s)
+        ON CONFLICT (klucz_tygodnia, aktywnosc) 
+        DO UPDATE SET wartosc = EXCLUDED.wartosc
+    """
+    cur.execute(query, (daj_klucz_tygodnia(), aktywnosc, wartosc))
     conn.commit()
     conn.close()
 
 def pobierz_stan_tygodnia_dict():
     conn = polacz()
     start = daj_zakres_dat_sql("Ten Tydzień")
-    res = conn.execute("SELECT aktywnosc, SUM(ilosc) FROM logi WHERE data >= ? GROUP BY aktywnosc", (start,)).fetchall()
+    df = pd.read_sql_query("SELECT aktywnosc, SUM(ilosc) as suma FROM logi WHERE data >= %s GROUP BY aktywnosc", conn, params=(start,))
     conn.close()
-    return {r[0]: r[1] for r in res}
+    if df.empty: return {}
+    return dict(zip(df.aktywnosc, df.suma))
 
 def pobierz_cele_biezace_dict():
     conn = polacz()
-    res = conn.execute("SELECT aktywnosc, wartosc FROM cele WHERE klucz_tygodnia = ?", (daj_klucz_tygodnia(),)).fetchall()
+    df = pd.read_sql_query("SELECT aktywnosc, wartosc FROM cele WHERE klucz_tygodnia = %s", conn, params=(daj_klucz_tygodnia(),))
     conn.close()
-    return {r[0]: r[1] for r in res}
+    if df.empty: return {}
+    return dict(zip(df.aktywnosc, df.wartosc))
 
 def pobierz_dane_wykres(lista, okres):
-    import pandas as pd
     if not lista: return pd.DataFrame(columns=['data', 'aktywnosc', 'ilosc'])
     conn = polacz()
     start = daj_zakres_dat_sql(okres)
-    ph = ','.join('?' for _ in lista)
-    df = pd.read_sql_query(f"SELECT data, aktywnosc, ilosc FROM logi WHERE data >= ? AND aktywnosc IN ({ph})", conn, params=[start] + lista)
+    placeholders = ','.join('%s' for _ in lista)
+    query = f"SELECT data, aktywnosc, ilosc FROM logi WHERE data >= %s AND aktywnosc IN ({placeholders})"
+    params = [start] + lista
+    df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
