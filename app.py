@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-import baza 
+import database 
 from datetime import date
 import time
 
@@ -65,64 +65,64 @@ if not st.session_state['logged_in']:
     
     st.stop()
 
-baza.inicjalizuj_baze()
+database.init_db()
 
-def wspin_sort_key(val):
+def climbing_sort_key(val):
     order = ["3", "4", "5", "5+", "6a", "6a+", "6b", "6b+", "6c", "6c+", "7a", "7a+", "7b", "7b+", "7c", "7c+", "8a", "8a+", "8b", "8b+", "8c", "9a"]
     val_lower = str(val).lower()
     if val_lower in order: return order.index(val_lower)
     return 999
 
-df_conf = baza.pobierz_konfiguracje()
+df_config = database.get_config()
 
-def get_sorted_list(kategoria):
-    items = df_conf[df_conf['kategoria'] == kategoria]['nazwa'].tolist()
-    if kategoria in ["Bouldering", "Sport Climbing", "Baldy", "Liny"]: return sorted(items, key=wspin_sort_key)
+def get_sorted_list(category):
+    items = df_config[df_config['category'] == category]['name'].tolist()
+    if category in ["Bouldering", "Sport Climbing", "Baldy", "Liny"]: return sorted(items, key=climbing_sort_key)
     return sorted(items)
 
-DOSTEPNE_KAT = df_conf['kategoria'].unique().tolist()
-STRUKTURA = {k: get_sorted_list(k) for k in DOSTEPNE_KAT}
+AVAILABLE_CATS = df_config['category'].unique().tolist()
+STRUCTURE = {k: get_sorted_list(k) for k in AVAILABLE_CATS}
 
-ZLE_NAWYKI = df_conf[df_conf['czy_zly']==1]['nazwa'].tolist()
-METRYKI_SREDNIE = ["Running (pace)", "Bieganie (tempo)"]
+BAD_HABITS = df_config[df_config['is_bad']==1]['name'].tolist()
+AVG_METRICS = ["Running (pace)", "Bieganie (tempo)"]
 
 with st.sidebar:
     st.title(f"Hi, {st.session_state['current_user'].upper()}! 👋")
     
-    wybrana_strona = st.radio(
+    selected_page = st.radio(
         "Navigate:", 
-        ["🏠 Command Center", "🏃 Running Log", "📅 Goal Planner & Manager"],
+        ["🏠 Command Center", "🏃 Running Log", "📅 Planner"],
         label_visibility="collapsed"
     )
     
     st.markdown("---")
     
     with st.expander("⚡ QUICK ADD", expanded=True):
-        if not STRUKTURA:
+        if not STRUCTURE:
             st.warning("No categories found.")
         else:
-            kat = st.selectbox("Category", list(STRUKTURA.keys()))
-            akt = st.selectbox("Activity", STRUKTURA[kat])
+            cat = st.selectbox("Category", list(STRUCTURE.keys()))
+            act = st.selectbox("Activity", STRUCTURE[cat])
             
             climbing_cats = ["Bouldering", "Sport Climbing", "Baldy", "Liny"]
             
-            if kat in climbing_cats:
+            if cat in climbing_cats:
                 if st.button("DONE (+1)", type="primary", width="stretch"):
-                    baza.dodaj_log(akt, 1.0)
-                    st.toast(f"Saved: {akt}")
+                    database.add_log(act, 1.0)
+                    st.toast(f"Saved: {act}")
             else:
-                is_float = "km" in akt.lower() or "pace" in akt.lower() or "tempo" in akt.lower()
+                is_float = "km" in act.lower() or "pace" in act.lower() or "tempo" in act.lower()
                 
                 if is_float:
                     val_def = 5.0; step_val = 1.0; fmt = "%.2f"
-                    ilosc = st.number_input("Value", value=val_def, step=step_val, format=fmt)
+                    amount = st.number_input("Value", value=val_def, step=step_val, format=fmt)
                 else:
                     val_def = 1; step_val = 1; fmt = "%d"
-                    ilosc = st.number_input("Value", value=int(val_def), step=int(step_val), format=fmt)
+                    amount = st.number_input("Value", value=int(val_def), step=int(step_val), format=fmt)
                 
                 if st.button("SAVE", type="primary", width="stretch"):
-                    baza.dodaj_log(akt, ilosc)
-                    st.toast(f"Saved: {akt}")
+                    database.add_log(act, amount)
+                    st.toast(f"Saved: {act}")
     
     st.markdown("---")
     if st.button("Logout", width="stretch"):
@@ -130,169 +130,170 @@ with st.sidebar:
         st.session_state['current_user'] = ""
         st.rerun()
 
-stany = baza.pobierz_stan_tygodnia_dict()
-cele = baza.pobierz_cele_biezace_dict()
+states = database.get_weekly_state_dict()
+goals = database.get_current_goals_dict()
 
-def render_wykres_altair(lista_aktywnosci, okres, kategoria):
-    df = baza.pobierz_dane_wykres(lista_aktywnosci, okres)
+def render_altair_chart(activity_list, period, category):
+    df = database.get_chart_data(activity_list, period)
     
     if df.empty:
-        df_agg = pd.DataFrame(lista_aktywnosci, columns=['aktywnosc']); df_agg['ilosc'] = 0
+        df_agg = pd.DataFrame(activity_list, columns=['aktywnosc']); df_agg['ilosc'] = 0
     else:
         df_agg = df.groupby("aktywnosc")['ilosc'].sum().reset_index()
     
-    df_full = pd.merge(pd.DataFrame(lista_aktywnosci, columns=['aktywnosc']), df_agg, on='aktywnosc', how='left').fillna(0)
-    df_full['Cel_Hist'] = df_full['aktywnosc'].apply(lambda x: baza.oblicz_cel_historyczny(x, okres))
+    df_full = pd.merge(pd.DataFrame(activity_list, columns=['aktywnosc']), df_agg, on='aktywnosc', how='left').fillna(0)
+    df_full['Goal_Hist'] = df_full['aktywnosc'].apply(lambda x: database.calc_historical_goal(x, period))
     
-    df_full.loc[df_full['aktywnosc'].str.contains("pace|tempo", case=False, na=False), 'Cel_Hist'] = 0
+    df_full.loc[df_full['aktywnosc'].str.contains("pace|tempo", case=False, na=False), 'Goal_Hist'] = 0
     
     color_bar = "#4CAF50"
-    if kategoria in ["Bouldering", "Sport Climbing", "Baldy", "Liny"]: color_bar = "#FFC107"
-    elif any(x in ZLE_NAWYKI for x in lista_aktywnosci): color_bar = "#FF5252"
+    if category in ["Bouldering", "Sport Climbing", "Baldy", "Liny"]: color_bar = "#FFC107"
+    elif any(x in BAD_HABITS for x in activity_list): color_bar = "#FF5252"
     
     base = alt.Chart(df_full).encode(
-        x=alt.X('aktywnosc', title=None, sort=lista_aktywnosci if kategoria in ["Bouldering", "Sport Climbing"] else None),
-        tooltip=['aktywnosc', 'ilosc', 'Cel_Hist']
+        x=alt.X('aktywnosc', title=None, sort=activity_list if category in ["Bouldering", "Sport Climbing"] else None),
+        tooltip=['aktywnosc', 'ilosc', 'Goal_Hist']
     )
     bars = base.mark_bar(color=color_bar, opacity=0.9).encode(y=alt.Y('ilosc', title='Value'))
-    ticks = base.transform_filter(alt.datum.Cel_Hist > 0).mark_tick(color='white', thickness=2, size=30).encode(y='Cel_Hist')
+    ticks = base.transform_filter(alt.datum.Goal_Hist > 0).mark_tick(color='white', thickness=2, size=30).encode(y='Goal_Hist')
     st.altair_chart((bars + ticks).properties(height=250), use_container_width=True)
 
-def render_sekcja_prosta(tytul, kategoria, czy_zly=False):
-    st.subheader(tytul)
-    lista = STRUKTURA.get(kategoria, [])
-    if not lista: st.caption("No activities."); return
+def render_simple_section(title, category, is_bad_habit=False):
+    st.subheader(title)
+    items_list = STRUCTURE.get(category, [])
+    if not items_list: st.caption("No activities."); return
 
     has_content = False
-    for akt in lista:
-        s = stany.get(akt, 0)
-        c = cele.get(akt, 0)
+    for act in items_list:
+        s = states.get(act, 0)
+        c = goals.get(act, 0)
         if c == 0 and s == 0: continue
         has_content = True
 
         c1, c2, c3 = st.columns([2, 4, 2])
-        c1.write(f"**{akt}**")
+        c1.write(f"**{act}**")
         
-        if akt in METRYKI_SREDNIE:
+        if act in AVG_METRICS:
             c2.info(f"Avg: {s:.2f}")
         else:
             proc = min(s/c if c>0 else 0, 1.0)
-            if czy_zly and c>0 and s>c: c2.error("LIMIT")
+            if is_bad_habit and c>0 and s>c: c2.error("LIMIT")
             else: c2.progress(proc)
         
         with c3:
             label_btn = f"{int(s)} / {int(c)}"
-            if akt in METRYKI_SREDNIE: label_btn = f"{s:.2f}"
-            key_pop = f"edit_{tytul}_{akt}"
+            if act in AVG_METRICS: label_btn = f"{s:.2f}"
+            key_pop = f"edit_{title}_{act}"
             
             with st.popover(label_btn, use_container_width=True, help="Edit value"):
-                st.write(f"Correct: **{akt}**")
-                is_float = "km" in akt.lower() or "pace" in akt.lower() or "tempo" in akt.lower()
+                st.write(f"Correct: **{act}**")
+                is_float = "km" in act.lower() or "pace" in act.lower() or "tempo" in act.lower()
                 
                 if is_float:
                     step = 0.5; fmt = "%.2f"; val = float(s)
                 else:
                     step = 1; fmt = "%d"; val = int(s)
                 
-                nowa_wartosc = st.number_input("State:", value=val, step=step, format=fmt, key=f"input_{key_pop}")
+                new_value = st.number_input("State:", value=val, step=step, format=fmt, key=f"input_{key_pop}")
                 
                 if st.button("Confirm", key=f"btn_{key_pop}", width="stretch"):
-                    delta = nowa_wartosc - val
+                    delta = new_value - val
                     if delta != 0:
-                        baza.dodaj_log(akt, delta)
+                        database.add_log(act, delta)
                         st.toast("Updated!")
                         st.rerun()
 
     if not has_content: st.caption("No data (0/0).")
 
-    with st.expander(f"📈 Chart: {tytul}"):
-        okres = st.selectbox("Period", ["This Week", "This Month", "This Year"], key=f"o_{kategoria}")
-        render_wykres_altair(lista, okres, kategoria)
+    with st.expander(f"📈 Chart: {title}"):
+        period = st.selectbox("Period", ["This Week", "This Month", "This Year"], key=f"o_{category}")
+        render_altair_chart(items_list, period, category)
 
-def obsluga_zmian_tabeli():
-    if "editor_biegi" not in st.session_state: return
-    changes = st.session_state["editor_biegi"]
+def handle_table_changes():
+    if "editor_runs" not in st.session_state: return
+    changes = st.session_state["editor_runs"]
     
     for idx in changes["deleted_rows"]:
-        id_do_usuniecia = st.session_state["df_biegi_snapshot"].iloc[idx]['id']
-        baza.usun_bieg(int(id_do_usuniecia))
+        id_to_del = st.session_state["df_runs_snapshot"].iloc[idx]['id']
+        database.delete_run(int(id_to_del))
         st.toast("🗑️ Run deleted!")
 
     for idx, row_changes in changes["edited_rows"].items():
-        id_biegu = st.session_state["df_biegi_snapshot"].iloc[idx]['id']
+        run_id = st.session_state["df_runs_snapshot"].iloc[idx]['id']
         for col_name, new_val in row_changes.items():
-            baza.aktualizuj_bieg(int(id_biegu), col_name, new_val)
+            database.update_run(int(run_id), col_name, new_val)
         st.toast("✏️ Updated!")
 
     for new_row in changes["added_rows"]:
-        dist = new_row.get("dystans", 0); czas = new_row.get("czas_min", 0)
-        data = new_row.get("data", str(date.today())); notatka = new_row.get("notatka", "")
-        if dist > 0 and czas > 0:
-            baza.dodaj_bieg(dist, czas, notatka, data)
+        dist = new_row.get("distance", 0); t_min = new_row.get("time_min", 0)
+        d = new_row.get("date", str(date.today())); note = new_row.get("note", "")
+        if dist > 0 and t_min > 0:
+            database.add_run(dist, t_min, note, d)
             st.toast("🏃 Run added!")
 
-if wybrana_strona == "🏠 Command Center":
+if selected_page == "🏠 Command Center":
     st.title("Command Center")
-    opcje_widoku = ["All"] + list(STRUKTURA.keys())
-    widok = st.radio("Show:", opcje_widoku, horizontal=True)
+    view_options = ["All"] + list(STRUCTURE.keys())
+    view = st.radio("Show:", view_options, horizontal=True)
     st.markdown("---")
 
-    if widok == "All":
-        kategorie = list(STRUKTURA.keys())
-        for i in range(0, len(kategorie), 3):
+    if view == "All":
+        cats = list(STRUCTURE.keys())
+        for i in range(0, len(cats), 3):
             cols = st.columns(3, gap="large")
             for j in range(3):
-                if i + j < len(kategorie):
-                    kat_name = kategorie[i + j]
-                    is_bad = any(x in ZLE_NAWYKI for x in STRUKTURA[kat_name])
-                    with cols[j]: render_sekcja_prosta(kat_name, kat_name, czy_zly=is_bad)
-            if i + 3 < len(kategorie): st.markdown("<br>", unsafe_allow_html=True)
+                if i + j < len(cats):
+                    cat_name = cats[i + j]
+                    is_bad = any(x in BAD_HABITS for x in STRUCTURE[cat_name])
+                    with cols[j]: render_simple_section(cat_name, cat_name, is_bad_habit=is_bad)
+            if i + 3 < len(cats): st.markdown("<br>", unsafe_allow_html=True)
     else:
-        is_bad = any(x in ZLE_NAWYKI for x in STRUKTURA[widok])
-        render_sekcja_prosta(widok, widok, czy_zly=is_bad)
+        is_bad = any(x in BAD_HABITS for x in STRUCTURE[view])
+        render_simple_section(view, view, is_bad_habit=is_bad)
 
-elif wybrana_strona == "🏃 Running Log":
+elif selected_page == "🏃 Running Log":
     st.title("🏃 Running Log")
     col_add, col_list = st.columns([1, 2], gap="large")
     with col_add:
         st.success("Add New Run")
-        with st.form("bieg"):
+        with st.form("run_form"):
             d = st.date_input("Date", value=date.today())
             km = st.number_input("Distance (km)", value=5.0, step=1.0)
             t = st.number_input("Time (min)", value=30.0, step=1.0)
             n = st.text_input("Note")
             if st.form_submit_button("SAVE RUN", width="stretch"):
-                baza.dodaj_bieg(km, t, n, d); st.rerun()
+                database.add_run(km, t, n, d); st.rerun()
     with col_list:
         st.subheader("History")
-        df_b = baza.pobierz_historie_biegow()
-        if not df_b.empty and 'data' in df_b.columns: df_b['data'] = pd.to_datetime(df_b['data']).dt.date
-        st.session_state["df_biegi_snapshot"] = df_b
-        if not df_b.empty:
-            scatter = alt.Chart(df_b).mark_circle(size=100).encode(
-                x='data', y='tempo_min_km', color='dystans', tooltip=['data', 'notatka']
+        df_runs = database.get_run_history()
+        if not df_runs.empty and 'date' in df_runs.columns: df_runs['date'] = pd.to_datetime(df_runs['date']).dt.date
+        st.session_state["df_runs_snapshot"] = df_runs
+        
+        if not df_runs.empty:
+            scatter = alt.Chart(df_runs).mark_circle(size=100).encode(
+                x='date', y='pace', color='distance', tooltip=['date', 'note']
             ).interactive()
             st.altair_chart(scatter, use_container_width=True)
             
-            tryb_edycji = st.toggle("✏️ Enable Editing", value=False)
+            edit_mode = st.toggle("✏️ Enable Editing", value=False)
             st.data_editor(
-                df_b, key="editor_biegi", on_change=obsluga_zmian_tabeli,
-                num_rows="dynamic" if tryb_edycji else "fixed", hide_index=True, use_container_width=True,
+                df_runs, key="editor_runs", on_change=handle_table_changes,
+                num_rows="dynamic" if edit_mode else "fixed", hide_index=True, use_container_width=True,
                 column_config={
                     "id": st.column_config.NumberColumn(disabled=True),
-                    "tempo_min_km": st.column_config.NumberColumn("Pace", format="%.2f", disabled=True),
-                    "data": st.column_config.DateColumn("Date", disabled=not tryb_edycji),
-                    "dystans": st.column_config.NumberColumn("km", format="%.2f", step=0.1, disabled=not tryb_edycji),
-                    "czas_min": st.column_config.NumberColumn("min", format="%d", step=1, disabled=not tryb_edycji),
-                    "notatka": st.column_config.TextColumn("Note", disabled=not tryb_edycji)
+                    "pace": st.column_config.NumberColumn("Pace", format="%.2f", disabled=True),
+                    "date": st.column_config.DateColumn("Date", disabled=not edit_mode),
+                    "distance": st.column_config.NumberColumn("km", format="%.2f", step=0.1, disabled=not edit_mode),
+                    "time_min": st.column_config.NumberColumn("min", format="%d", step=1, disabled=not edit_mode),
+                    "note": st.column_config.TextColumn("Note", disabled=not edit_mode)
                 }
             )
         else: st.info("No runs found.")
 
-elif wybrana_strona == "📅 Goal Planner & Manager":
-    st.title("📅 Goal Planner & Manager")
+elif selected_page == "📅 Planner":
+    st.title("📅 Planner")
     
-    df_plan = baza.pobierz_pelny_planer()
+    df_plan = database.get_full_planner()
     st.session_state["df_plan_snapshot"] = df_plan
 
     if "temp_categories" not in st.session_state: st.session_state.temp_categories = []
@@ -302,12 +303,34 @@ elif wybrana_strona == "📅 Goal Planner & Manager":
 
     col_tools, col_filter = st.columns([1, 2])
     with col_tools:
-        with st.popover("➕ Define New Category", use_container_width=True):
-            new_cat_input = st.text_input("New Category Name")
-            if st.button("Add to List"):
-                if new_cat_input and new_cat_input not in all_cats_for_dropdown:
-                    st.session_state.temp_categories.append(new_cat_input)
-                    st.rerun()
+        with st.popover("⚙️ Manage Categories", use_container_width=True):
+            tab1, tab2, tab3 = st.tabs(["Add", "Rename", "Cleanup"])
+            
+            with tab1:
+                new_cat_input = st.text_input("New Category Name")
+                if st.button("Add to List", key="btn_add_cat"):
+                    if new_cat_input and new_cat_input not in all_cats_for_dropdown:
+                        st.session_state.temp_categories.append(new_cat_input)
+                        st.rerun()
+            
+            with tab2:
+                cat_to_rename = st.selectbox("Select Category to Rename", db_cats)
+                new_name_rename = st.text_input("New Name")
+                if st.button("Rename Category", key="btn_rename_cat"):
+                    if new_name_rename and cat_to_rename:
+                        database.rename_category_in_db(cat_to_rename, new_name_rename)
+                        st.success("Renamed!")
+                        time.sleep(1)
+                        st.rerun()
+
+            with tab3:
+                st.caption("Remove unused categories from the session list.")
+                cat_to_del = st.selectbox("Select Temp Category", st.session_state.temp_categories)
+                if st.button("Remove from List", key="btn_del_cat"):
+                    if cat_to_del in st.session_state.temp_categories:
+                        st.session_state.temp_categories.remove(cat_to_del)
+                        st.rerun()
+
     with col_filter:
         cat_filter = st.selectbox("Filter:", ["All Categories"] + all_cats_for_dropdown)
 
@@ -316,27 +339,27 @@ elif wybrana_strona == "📅 Goal Planner & Manager":
     else:
         df_display = df_plan
 
-    st.info("💡 You can add new rows below. To use a new category, add it via the button above first.")
+    st.info("💡 You can add new rows below. Use 'Manage Categories' to add/edit categories.")
     
     edited = st.data_editor(
         df_display,
-        key="editor_planer",
+        key="editor_planner",
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
             "Activity": st.column_config.TextColumn(required=True, help="Unique name"),
             "Category": st.column_config.SelectboxColumn(options=all_cats_for_dropdown, required=True),
-            "Is Bad Habit": st.column_config.CheckboxColumn(width="small"),
+            "Is Bad Habit": st.column_config.CheckboxColumn(label="Bad?", width="small"),
             "Weekly Goal": st.column_config.NumberColumn(min_value=0, step=1)
         }
     )
 
     if st.button("SAVE CHANGES", type="primary", width="stretch"):
-        if "editor_planer" in st.session_state:
-            changes = st.session_state["editor_planer"]
+        if "editor_planner" in st.session_state:
+            changes = st.session_state["editor_planner"]
             if changes["edited_rows"] or changes["deleted_rows"] or changes["added_rows"]:
-                baza.aktualizuj_planer_batch(changes, st.session_state["df_plan_snapshot"])
+                database.update_planner_batch(changes, st.session_state["df_plan_snapshot"])
                 st.success("Changes saved!")
                 time.sleep(1)
                 st.rerun()
