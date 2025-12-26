@@ -3,51 +3,75 @@ import pandas as pd
 import altair as alt
 import baza 
 from datetime import date
+import time
 
-# --- KONFIGURACJA ---
 st.set_page_config(page_title="Panel Treningowy PRO", layout="wide", initial_sidebar_state="expanded")
-baza.inicjalizuj_baze()
 
-# --- CSS ---
 st.markdown("""
 <style>
     .stProgress > div > div > div > div { background-color: #4CAF50; }
-    
-    /* Styl kafelków */
     div[data-testid="column"] { 
         background: rgba(255, 255, 255, 0.02); 
         padding: 20px; 
         border-radius: 12px; 
         border: 1px solid rgba(255,255,255,0.05); 
-        /* Ważne dla równania wysokości wizualnie */
         min-height: 100%;
     }
-    
-    /* Tytuły sekcji */
     h3 { 
         border-bottom: 1px solid rgba(255,255,255,0.1); 
-        padding-bottom: 10px; 
-        margin-top: 0px; 
-        margin-bottom: 20px;
-        font-size: 1.2rem;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        color: #ddd;
+        padding-bottom: 10px; margin-top: 0px; margin-bottom: 20px;
+        font-size: 1.2rem; letter-spacing: 1px; text-transform: uppercase; color: #ddd;
     }
-    
     .stRadio > div { gap: 10px; }
     button[kind="secondary"] { font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- SORTOWANIE TRUDNOŚCI ---
+
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+def check_login():
+    user = st.session_state['login_user']
+    password = st.session_state['login_pass']
+
+    
+    try:
+        correct_pass = st.secrets["users"][user]
+        if password == correct_pass:
+            st.session_state['logged_in'] = True
+            # Przypisujemy odpowiednią bazę danych
+            st.session_state['db_url'] = st.secrets["db_urls"][user]
+            st.success("Zalogowano! Ładowanie...")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Błędne hasło!")
+    except KeyError:
+        st.error(f"Nieznany użytkownik w konfiguracji: {user}")
+
+if not st.session_state['logged_in']:
+    st.title("🔒 Panel Treningowy - Logowanie")
+    
+    users_list = ["user1", "user2", "user3"]
+    
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        st.selectbox("Wybierz profil:", users_list, key="login_user")
+        st.text_input("Hasło:", type="password", key="login_pass")
+        st.button("ZALOGUJ", on_click=check_login, type="primary", width="stretch")
+    
+    st.stop()
+
+
+baza.inicjalizuj_baze()
+
 def wspin_sort_key(val):
     order = ["3", "4", "5", "5+", "6a", "6a+", "6b", "6b+", "6c", "6c+", "7a", "7a+", "7b", "7b+", "7c", "7c+", "8a", "8a+", "8b", "8b+", "8c", "9a"]
     val_lower = str(val).lower()
     if val_lower in order: return order.index(val_lower)
     return 999
 
-# --- KONFIGURACJA DYNAMICZNA ---
 df_conf = baza.pobierz_konfiguracje()
 
 def get_sorted_list(kategoria):
@@ -61,11 +85,8 @@ STRUKTURA = {k: get_sorted_list(k) for k in DOSTEPNE_KAT}
 ZLE_NAWYKI = df_conf[df_conf['czy_zly']==1]['nazwa'].tolist()
 METRYKI_SREDNIE = ["Bieganie (tempo)"]
 
-# ==========================================
-# PASEK BOCZNY
-# ==========================================
 with st.sidebar:
-    st.title("🎛️ MENU")
+    st.title(f"Witaj, {st.session_state['login_user'].upper()}! 👋")
     
     wybrana_strona = st.radio(
         "Przejdź do:", 
@@ -75,7 +96,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # SZYBKI ZAPIS
     with st.expander("⚡ SZYBKI ZAPIS", expanded=True):
         if not STRUKTURA:
             st.warning("Brak kategorii.")
@@ -100,12 +120,15 @@ with st.sidebar:
                 if st.button("ZAPISZ", type="primary", width="stretch"):
                     baza.dodaj_log(akt, ilosc)
                     st.toast(f"Zapisano: {akt}")
+    
+    st.markdown("---")
+    if st.button("Wyloguj", width="stretch"):
+        st.session_state['logged_in'] = False
+        st.rerun()
 
-# --- DANE ---
 stany = baza.pobierz_stan_tygodnia_dict()
 cele = baza.pobierz_cele_biezace_dict()
 
-# --- WYKRES ---
 def render_wykres_altair(lista_aktywnosci, okres, kategoria):
     df = baza.pobierz_dane_wykres(lista_aktywnosci, okres)
     
@@ -133,7 +156,6 @@ def render_wykres_altair(lista_aktywnosci, okres, kategoria):
     ticks = base.transform_filter(alt.datum.Cel_Hist > 0).mark_tick(color='white', thickness=2, size=30).encode(y='Cel_Hist')
     st.altair_chart((bars + ticks).properties(height=250), use_container_width=True)
 
-# --- SEKCJA ---
 def render_sekcja_prosta(tytul, kategoria, czy_zly=False):
     st.subheader(tytul)
     lista = STRUKTURA.get(kategoria, [])
@@ -147,7 +169,6 @@ def render_sekcja_prosta(tytul, kategoria, czy_zly=False):
         has_content = True
 
         c1, c2, c3 = st.columns([2, 4, 2])
-        
         c1.write(f"**{akt}**")
         
         if akt in METRYKI_SREDNIE:
@@ -160,12 +181,10 @@ def render_sekcja_prosta(tytul, kategoria, czy_zly=False):
         with c3:
             label_btn = f"{int(s)} / {int(c)}"
             if akt in METRYKI_SREDNIE: label_btn = f"{s:.2f}"
-            
             key_pop = f"edit_{tytul}_{akt}"
             
             with st.popover(label_btn, use_container_width=True, help="Edytuj wynik"):
                 st.write(f"Korekta: **{akt}**")
-                
                 is_float = "km" in akt.lower() or "tempo" in akt.lower()
                 
                 if is_float:
@@ -188,9 +207,7 @@ def render_sekcja_prosta(tytul, kategoria, czy_zly=False):
         okres = st.selectbox("Okres", ["Ten Tydzień", "Ten Miesiąc", "Ten Rok"], key=f"o_{kategoria}")
         render_wykres_altair(lista, okres, kategoria)
 
-# ==========================================
-# LOGIKA TABELI
-# ==========================================
+
 def obsluga_zmian_tabeli():
     if "editor_biegi" not in st.session_state: return
     changes = st.session_state["editor_biegi"]
@@ -213,11 +230,7 @@ def obsluga_zmian_tabeli():
             baza.dodaj_bieg(dist, czas, notatka, data)
             st.toast("🏃 Dodano bieg!")
 
-# ==========================================
-# LOGIKA STRON
-# ==========================================
 
-# 1. CENTRUM DOWODZENIA
 if wybrana_strona == "🏠 Centrum Dowodzenia":
     st.title("Centrum Dowodzenia")
     opcje_widoku = ["Wszystko"] + list(STRUKTURA.keys())
@@ -225,39 +238,22 @@ if wybrana_strona == "🏠 Centrum Dowodzenia":
     st.markdown("---")
 
     if widok == "Wszystko":
-        # NOWY SPOSÓB: Generowanie siatki RZĘDAMI (po 3 w rzędzie)
-        # To zapobiega "schodkowaniu" (masonry layout) i wymusza równe rzędy
-        
         kategorie = list(STRUKTURA.keys())
-        
-        # Iterujemy co 3 elementy (0, 3, 6...)
         for i in range(0, len(kategorie), 3):
-            # Tworzymy kontener na rząd (3 kolumny)
-            cols = st.columns(3, gap="large") # Gap large daje większy odstęp między kolumnami
-            
-            # Wypełniamy te 3 kolumny
+            cols = st.columns(3, gap="large")
             for j in range(3):
                 if i + j < len(kategorie):
                     kat_name = kategorie[i + j]
                     is_bad = any(x in ZLE_NAWYKI for x in STRUKTURA[kat_name])
-                    
-                    with cols[j]:
-                        render_sekcja_prosta(kat_name, kat_name, czy_zly=is_bad)
-            
-            # Dodajemy separator po każdym rzędzie (opcjonalne, ale pomaga wizualnie)
-            if i + 3 < len(kategorie):
-                st.markdown("<br>", unsafe_allow_html=True)
-            
+                    with cols[j]: render_sekcja_prosta(kat_name, kat_name, czy_zly=is_bad)
+            if i + 3 < len(kategorie): st.markdown("<br>", unsafe_allow_html=True)
     else:
-        # Widok pojedynczy
         is_bad = any(x in ZLE_NAWYKI for x in STRUKTURA[widok])
         render_sekcja_prosta(widok, widok, czy_zly=is_bad)
 
-# 2. BIEGANIE
 elif wybrana_strona == "🏃 Dziennik Biegowy":
     st.title("🏃 Dziennik Biegowy")
     col_add, col_list = st.columns([1, 2], gap="large")
-    
     with col_add:
         st.success("Dodaj nowy bieg")
         with st.form("bieg"):
@@ -267,22 +263,17 @@ elif wybrana_strona == "🏃 Dziennik Biegowy":
             n = st.text_input("Notatka")
             if st.form_submit_button("ZAPISZ BIEG", width="stretch"):
                 baza.dodaj_bieg(km, t, n, d); st.rerun()
-    
     with col_list:
         st.subheader("Historia")
-        
         df_b = baza.pobierz_historie_biegow()
         if not df_b.empty and 'data' in df_b.columns: df_b['data'] = pd.to_datetime(df_b['data']).dt.date
         st.session_state["df_biegi_snapshot"] = df_b
-        
         if not df_b.empty:
             scatter = alt.Chart(df_b).mark_circle(size=100).encode(
                 x='data', y='tempo_min_km', color='dystans', tooltip=['data', 'notatka']
             ).interactive()
             st.altair_chart(scatter, use_container_width=True)
-            
             tryb_edycji = st.toggle("✏️ Odblokuj edycję tabeli", value=False)
-            
             st.data_editor(
                 df_b, key="editor_biegi", on_change=obsluga_zmian_tabeli,
                 num_rows="dynamic" if tryb_edycji else "fixed", hide_index=True, use_container_width=True,
@@ -295,13 +286,10 @@ elif wybrana_strona == "🏃 Dziennik Biegowy":
                     "notatka": st.column_config.TextColumn("Notatka", disabled=not tryb_edycji)
                 }
             )
-            if not tryb_edycji:
-                st.caption("🔒 Tabela zablokowana. Użyj przełącznika powyżej, aby edytować.")
-            else:
-                st.warning("⚠️ Tryb edycji! Zmiany w tabeli są zapisywane automatycznie.")
+            if not tryb_edycji: st.caption("🔒 Tabela zablokowana. Użyj przełącznika powyżej, aby edytować.")
+            else: st.warning("⚠️ Tryb edycji! Zmiany w tabeli są zapisywane automatycznie.")
         else: st.info("Brak wpisów.")
 
-# 3. PLANER
 elif wybrana_strona == "📅 Planer Celów":
     st.title("📅 Planowanie Tygodnia")
     all_items = []
@@ -319,7 +307,6 @@ elif wybrana_strona == "📅 Planer Celów":
         for i, row in edited.iterrows(): baza.ustaw_cel(row['Aktywność'], row['Cel'])
         st.success("Zapisano!"); st.rerun()
 
-# 4. KONFIGURACJA
 elif wybrana_strona == "⚙️ Konfiguracja":
     st.title("⚙️ Konfiguracja")
     c_add, c_del = st.columns(2, gap="large")
