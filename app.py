@@ -8,6 +8,7 @@ import time
 st.set_page_config(page_title="Training Panel PRO", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
+<link rel="manifest" href="app/static/manifest.json">
 <style>
     .stProgress > div > div > div > div { background-color: #4CAF50; }
     div[data-testid="column"] { 
