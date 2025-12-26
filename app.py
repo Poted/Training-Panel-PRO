@@ -190,14 +190,16 @@ def render_simple_section(title, category, is_bad_habit=False):
                 st.write(f"Correct: **{act}**")
                 is_float = "km" in act.lower() or "pace" in act.lower() or "tempo" in act.lower()
                 
-                if is_float:
-                    step = 0.5; fmt = "%.2f"; val = float(s)
-                else:
-                    step = 1; fmt = "%d"; val = int(s)
+                with st.form(key=f"form_{key_pop}"):
+                    if is_float:
+                        step = 0.5; fmt = "%.2f"; val = float(s)
+                    else:
+                        step = 1; fmt = "%d"; val = int(s)
+                    
+                    new_value = st.number_input("State:", value=val, step=step, format=fmt)
+                    submitted = st.form_submit_button("Confirm", use_container_width=True)
                 
-                new_value = st.number_input("State:", value=val, step=step, format=fmt, key=f"input_{key_pop}")
-                
-                if st.button("Confirm", key=f"btn_{key_pop}", width="stretch"):
+                if submitted:
                     delta = new_value - val
                     if delta != 0:
                         database.add_log(act, delta)
@@ -344,7 +346,6 @@ elif selected_page == "📅 Planner":
 
     st.info("💡 You can add new rows below. Use 'Manage Categories' to add/edit categories.")
     
-    # Dynamicznie ukrywamy kolumnę "Is Bad Habit" dla wszystkich kategorii poza "Bad Habits"
     cols_to_show = ["Activity", "Category", "Weekly Goal"]
     if cat_filter == "Bad Habits":
         cols_to_show.insert(2, "Is Bad Habit")
