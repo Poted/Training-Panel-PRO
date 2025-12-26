@@ -194,26 +194,31 @@ def update_planner_batch(changes, df_snapshot):
             name = raw_name.strip() if raw_name else None
             
             raw_cat = new_row.get("Category", "")
-            cat = raw_cat.strip() if raw_cat else None
+            cat = raw_cat.strip() if raw_cat else "General"
             
             bad_val = new_row.get("Is Bad Habit", False)
             bad = 1 if (bad_val is True or bad_val == 1) else 0
             
             goal = new_row.get("Weekly Goal", 0)
             
-            if name and cat:
-                query_ins = """
-                    INSERT INTO config_aktywnosci (nazwa, kategoria, czy_zly) VALUES (%s, %s, %s)
-                    ON CONFLICT (nazwa) DO UPDATE SET kategoria = EXCLUDED.kategoria, czy_zly = EXCLUDED.czy_zly
-                """
-                cur.execute(query_ins, (name, cat, bad))
-                
-                if goal > 0:
-                    query_goal = """
-                        INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
-                        ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
+            if name:
+                try:
+                    query_ins = """
+                        INSERT INTO config_aktywnosci (nazwa, kategoria, czy_zly) VALUES (%s, %s, %s)
+                        ON CONFLICT (nazwa) DO UPDATE SET kategoria = EXCLUDED.kategoria, czy_zly = EXCLUDED.czy_zly
                     """
-                    cur.execute(query_goal, (key, name, goal))
+                    cur.execute(query_ins, (name, cat, bad))
+                    
+                    if goal > 0:
+                        query_goal = """
+                            INSERT INTO cele (klucz_tygodnia, aktywnosc, wartosc) VALUES (%s, %s, %s)
+                            ON CONFLICT (klucz_tygodnia, aktywnosc) DO UPDATE SET wartosc = EXCLUDED.wartosc
+                        """
+                        cur.execute(query_goal, (key, name, goal))
+                    
+                    st.toast(f"💾 Added/Updated: {name}")
+                except Exception as e:
+                    st.error(f"Database Error for '{name}': {e}")
 
         conn.commit()
     st.cache_data.clear()

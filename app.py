@@ -113,16 +113,17 @@ with st.sidebar:
             else:
                 is_float = "km" in act.lower() or "pace" in act.lower() or "tempo" in act.lower()
                 
-                if is_float:
-                    val_def = 5.0; step_val = 1.0; fmt = "%.2f"
-                    amount = st.number_input("Value", value=val_def, step=step_val, format=fmt)
-                else:
-                    val_def = 1; step_val = 1; fmt = "%d"
-                    amount = st.number_input("Value", value=int(val_def), step=int(step_val), format=fmt)
-                
-                if st.button("SAVE", type="primary", width="stretch"):
-                    database.add_log(act, amount)
-                    st.toast(f"Saved: {act}")
+                with st.form("quick_add_form"):
+                    if is_float:
+                        val_def = 5.0; step_val = 1.0; fmt = "%.2f"
+                        amount = st.number_input("Value", value=val_def, step=step_val, format=fmt)
+                    else:
+                        val_def = 1; step_val = 1; fmt = "%d"
+                        amount = st.number_input("Value", value=int(val_def), step=int(step_val), format=fmt)
+                    
+                    if st.form_submit_button("SAVE", type="primary", use_container_width=True):
+                        database.add_log(act, amount)
+                        st.toast(f"Saved: {act}")
     
     st.markdown("---")
     if st.button("Logout", width="stretch"):
@@ -343,12 +344,18 @@ elif selected_page == "📅 Planner":
 
     st.info("💡 You can add new rows below. Use 'Manage Categories' to add/edit categories.")
     
+    # Dynamicznie ukrywamy kolumnę "Is Bad Habit" dla wszystkich kategorii poza "Bad Habits"
+    cols_to_show = ["Activity", "Category", "Weekly Goal"]
+    if cat_filter == "Bad Habits":
+        cols_to_show.insert(2, "Is Bad Habit")
+
     edited = st.data_editor(
         df_display,
         key="editor_planner",
         num_rows="dynamic",
         use_container_width=True,
-        hide_index=True, 
+        hide_index=True,
+        column_order=cols_to_show,
         column_config={
             "Activity": st.column_config.TextColumn(
                 required=True, 
